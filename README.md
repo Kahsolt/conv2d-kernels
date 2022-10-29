@@ -6,6 +6,12 @@
 
 Conv2d layers are learnable 2D signal filters, it self is indeed a function-let, so what can it actually do? 🤔
 
+### Apps
+
+⚪ conv2d filter: what does the **first** conv2d layer do in the well-known classifiers
+
+![img/filter.png](img/filter.png)
+
 
 #### resources download
 
