@@ -47,7 +47,7 @@ ResNet18 conv1 kernels centroids after KMeans clustering:
 
 #### resources download
 
-- The reprocessed ImageNet-1k dataset can be downloaded here: [https://pan.quark.cn/s/21953f83f874](https://pan.quark.cn/s/21953f83f874)
+- The reprocessed ImageNet-1k dataset can be downloaded here: [https://pan.quark.cn/s/373b488d101e](https://pan.quark.cn/s/373b488d101e)
   - NOTE: It is a subset of 1k images from validation split of original intact ImageNet dataset
 - Tiny-ImageNet can be found here: [tiny-imagenet-200](https://tiny-imagenet.herokuapp.com)
 
