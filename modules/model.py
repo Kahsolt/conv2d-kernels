@@ -5,8 +5,6 @@
 import torch.nn as nn
 import torchvision.models as M
 
-from modules.env import device
-
 MODELS = [
   'resnet18',
   'resnet34',
@@ -31,16 +29,16 @@ MODELS = [
 
 def get_first_conv2d_layer(model):
   if isinstance(model, M.ResNet):
-    return model.conv1.to(device)
+    return model.conv1
   if isinstance(model, M.DenseNet):
-    return model.features['conv0'].to(device)
+    return model.features[0]
   
   for layer in model.modules():
     if isinstance(layer, nn.Conv2d):
-      return layer.to(device)
+      return layer
 
 
 def get_model(name):
   model = getattr(M, name)(pretrained=True)
   
-  return model.to(device)
+  return model

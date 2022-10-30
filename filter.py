@@ -2,6 +2,8 @@
 # Author: Armit
 # Create Time: 2022/10/28 
 
+# inspect into the feature maps of inputs filtered by conv2d layer
+
 import os
 import tkinter as tk
 import tkinter.ttk as ttk
@@ -25,11 +27,11 @@ from modules.env import device
 from modules.pgd import pgd
 
 WINDOW_TITLE    = 'conv2d filter'
-WINDOW_SIZE     = (700, 600)
 IMAGE_MAX_SIZE  = 512
 CONTROL_WIDTH   = 140
+WINDOW_SIZE     = (IMAGE_MAX_SIZE+CONTROL_WIDTH+40, 600)
 HIST_FIG_SIZE   = (1.5, 1)
-RESAMPLE_METHOD = Image.Resampling.BILINEAR
+RESAMPLE_METHOD = Image.Resampling.NEAREST
 NUM_CLASSES     = 1000
 
 assert IMAGE_MAX_SIZE < min(*WINDOW_SIZE)
@@ -179,8 +181,8 @@ class App:
       frm14 = ttk.LabelFrame(frm1, text='Stats')
       frm14.pack(expand=tk.YES, fill=tk.X)
       if True:
-        self.vat_img_stats = tk.StringVar(frm14, '')
-        lb = ttk.Label(frm14, textvariable=self.vat_img_stats)
+        self.var_img_stats = tk.StringVar(frm14, '')
+        lb = ttk.Label(frm14, textvariable=self.var_img_stats)
         lb.pack()
 
       frm15 = ttk.LabelFrame(frm1, text='Hist')
@@ -209,7 +211,7 @@ class App:
     if name == self.cur_model: return
 
     try:
-      self.model = get_model(name).eval()
+      self.model = get_model(name).to(device).eval()
       self.layer = get_first_conv2d_layer(self.model)
       W = self.layer.weight
       in_channels = W.shape[1]
@@ -274,7 +276,7 @@ class App:
     self.lb_fp_info.pack()
 
     img = Image.open(fp).convert('RGB')
-    x = to_tenosr(img).unsqueeze_(0)
+    x = to_tenosr(img).unsqueeze_(0).to(device)
     self.tgt_atk = None
     self._mk_imgs(x)
     self._forward()
@@ -303,7 +305,7 @@ class App:
       f'mean: {x_f.mean():.7f}',
       f'std:  {x_f.std():.7f}',
     ]
-    self.vat_img_stats.set('\n'.join([f for f in info if f]))
+    self.var_img_stats.set('\n'.join([f for f in info if f]))
 
     self.ax.cla()
     self.ax.axis('off')
@@ -339,7 +341,6 @@ class App:
         y = logits.argmax().unsqueeze(0)
       elif atk_tgt == 'least prob':
         y = logits.argmin().unsqueeze(0)
-    y = y.to(device)
     self.tgt_atk = y.to(device)
 
     x = pgd(self.model, self.src, self.tgt_atk, normalizer=lambda x: normalize(x, self.cur_dataset))
@@ -371,9 +372,9 @@ class App:
     self._update_stats(img)
 
     h, w = img.size
-    if h > w:   size = (IMAGE_MAX_SIZE, IMAGE_MAX_SIZE * w // h)
+    if   h > w: size = (IMAGE_MAX_SIZE,          IMAGE_MAX_SIZE * w // h)
     elif w > h: size = (IMAGE_MAX_SIZE * h // w, IMAGE_MAX_SIZE)
-    else:       size = (IMAGE_MAX_SIZE, IMAGE_MAX_SIZE)
+    else:       size = (IMAGE_MAX_SIZE,          IMAGE_MAX_SIZE)
     img = img.resize(size, resample=RESAMPLE_METHOD)
 
     imgtk = ImageTk.PhotoImage(img)

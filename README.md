@@ -8,9 +8,41 @@ Conv2d layers are learnable 2D signal filters, it self is indeed a function-let,
 
 ### Apps
 
-⚪ conv2d filter: what does the **first** conv2d layer do in the well-known classifiers
+#### kernel
+
+⚪ inspect into conv2d kernels: what are the learned geometrical basis?
+
+![img/kernel.png](img/kernel.png)
+
+#### cluster
+
+⚪ grouping kernels: many kernels seems to be similar thus redundant?
+
+ResNet18 conv1 kernels:
+
+![img/resnet18-conv1-kernels.png](img/resnet18-conv1-kernels.png)
+
+ResNet18 conv1 kernels centroids after KMeans clustering:
+
+![img/resnet18-conv1-kernel-centroids.png](img/resnet18-conv1-kernel-centroids.png)
+
+#### filter
+
+⚪ inspect into featur maps: what does the **first** conv2d layer do in the well-known classifiers?
 
 ![img/filter.png](img/filter.png)
+
+#### attack
+
+⚪ PGD adversarial attack: what if we attack a single conv2d layer?
+
+![img/attack.png](img/attack.png)
+
+#### fixedpoint
+
+⚪ mathematical property of the weights: what are the fixed points of a conv2d layer?
+
+![img/fixedpoint.png](img/fixedpoint.png)
 
 
 #### resources download
