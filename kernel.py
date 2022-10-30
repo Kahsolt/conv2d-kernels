@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from modules.model import MODELS, get_model, get_first_conv2d_layer
-from modules.util import kernel_norm
+from modules.util import minmax_norm_channel_wise
 
 WINDOW_TITLE    = 'conv2d kernel'
 WINDOW_SIZE     = (700, 600)
@@ -144,7 +144,7 @@ class App:
   def _show(self):
     kernels = self.kernels
     if self.var_normalize.get():
-      kernels = kernel_norm(kernels)
+      kernels = minmax_norm_channel_wise(kernels)
     
     ch = self.var_channel.get()
     if ch == -1:

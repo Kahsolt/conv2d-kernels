@@ -15,7 +15,7 @@ import seaborn as sns
 
 from modules.model import MODELS, get_model, get_first_conv2d_layer
 from modules.plot import imshow
-from modules.util import kernel_norm
+from modules.util import minmax_norm_channel_wise
 
 
 def optimal_number_of_clusters(wcss, n_clust_min, n_clust_max, n_clust_step):
@@ -42,7 +42,7 @@ def cluster(args):
   if 'draw kernels':
     for i, k in enumerate(kernels):
       print(f'kernel-{i}: mean={k.mean()}, std={k.std()}')
-    kernels_n = kernel_norm(kernels) if args.show_norm else kernels
+    kernels_n = minmax_norm_channel_wise(kernels) if args.show_norm else kernels
     imshow(kernels_n, 'kernels', maximize=True)
 
   data = kernels.flatten(start_dim=1)     # [C_out, C_in*H*W]
@@ -91,7 +91,7 @@ def cluster(args):
     for i, k in enumerate(centroid_kernels):
       print(f'kernel-{i}: mean={k.mean()}, std={k.std()}')
     c_ker = torch.from_numpy(centroid_kernels)
-    kernels_n = kernel_norm(c_ker) if args.show_norm else c_ker
+    kernels_n = minmax_norm_channel_wise(c_ker) if args.show_norm else c_ker
     imshow(kernels_n, 'centroid kernels', maximize=True)
   
   if 'draw distmap':

@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as T
+from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
@@ -25,11 +26,12 @@ from modules.model import MODELS, get_model, get_first_conv2d_layer
 from modules.data import DATASETS, get_dataloader, normalize
 from modules.env import device
 from modules.pgd import ATK_METH, pgd, pgd_conv
+from modules.util import minmax_norm_channel_wise
 
 WINDOW_TITLE    = 'conv2d attack'
-IMAGE_MAX_SIZE  = 384
+IMAGE_MAX_SIZE  = 512
 CONTROL_WIDTH   = 140
-WINDOW_SIZE     = (IMAGE_MAX_SIZE*3+CONTROL_WIDTH+40, 670)
+WINDOW_SIZE     = (IMAGE_MAX_SIZE*3+CONTROL_WIDTH+40, 750)
 HIST_FIG_SIZE   = (3.8, 2)
 RESAMPLE_METHOD = Image.Resampling.NEAREST
 NUM_CLASSES     = 1000
@@ -37,12 +39,37 @@ NUM_CLASSES     = 1000
 assert IMAGE_MAX_SIZE < min(*WINDOW_SIZE)
 
 ATK_TGT = ['random', 'second prob', 'least prob']
+CONV_ATK_TGT = [
+  'std_fm',
+  'std_C_fm',
+  'std_S_fm',
+  'mean_fm',
+  'mean_C_fm',
+  'mean_S_fm',
 
-DEFAULT_MODEL    = MODELS  [0]
-DEFAULT_TMODEL   = MODELS  [-1]
-DEFAULT_DATASET  = DATASETS[-1]
-DEFAULT_ATK_TGT  = ATK_TGT [0]
-DEFAULT_ATK_METH = ATK_METH[0]
+  'L1', 
+  'L1_std',
+  'L1_std_C',
+  'L1_std_S',
+  'L1_mean',
+  'L1_mean_C',
+  'L1_mean_S',
+  'std_L1',
+  'std_C_L1',
+  'std_S_L1',
+  'mean_L1',
+  'mean_C_L1',
+  'mean_S_L1',
+
+  'L2',
+]
+
+DEFAULT_MODEL        = MODELS  [0]
+DEFAULT_TMODEL       = MODELS  [-1]
+DEFAULT_DATASET      = DATASETS[-1]
+DEFAULT_ATK_METH     = ATK_METH[0]
+DEFAULT_ATK_TGT      = ATK_TGT [0]
+DEFAULT_CONV_ATK_TGT = CONV_ATK_TGT[0]
 
 to_tenosr = T.ToTensor()
 
@@ -65,6 +92,10 @@ class App:
     self.Y_atk    = None    # torch.Tensor; attack label if available   [B=1]
     self.pred_X   = None    # torch.Tensor; output logits               [B=1, NUM_CLASS]
     self.pred_AX  = None    # torch.Tensor; output logits               [B=1, NUM_CLASS]
+
+    self.mode_img_X  = False  # True for conv img, False for raw img
+    self.mode_img_AX = False  # True for conv img, False for raw img
+    self.mode_img_DX = False  # True for conv img, False for raw img
 
     self.setup_gui()
     self.init_workspace()
@@ -133,19 +164,29 @@ class App:
       frm13 = ttk.LabelFrame(frm1, text='Attack')
       frm13.pack()
       if True:
+        def _change_atk_tgt():
+          atk_meth = self.var_atk_meth.get()
+          if atk_meth == 'pgd':
+            self.cb_atk_tgt.config(values=ATK_TGT)
+            self.var_atk_tgt.set(DEFAULT_ATK_TGT)
+          elif atk_meth == 'pgd_conv':
+            self.cb_atk_tgt.config(values=CONV_ATK_TGT)
+            self.var_atk_tgt.set(DEFAULT_CONV_ATK_TGT)
+
         frm130 = ttk.LabelFrame(frm13, text='method')
         frm130.pack(expand=tk.YES, fill=tk.X)
         if True:
           self.var_atk_meth = tk.StringVar(frm130, value=DEFAULT_ATK_METH)
           cb = ttk.Combobox(frm130, values=ATK_METH, textvariable=self.var_atk_meth)
+          cb.bind('<<ComboboxSelected>>', lambda evt: _change_atk_tgt())
           cb.pack(expand=tk.YES, fill=tk.X)
 
         frm131 = ttk.LabelFrame(frm13, text='target')
         frm131.pack(expand=tk.YES, fill=tk.X)
         if True:
           self.var_atk_tgt = tk.StringVar(frm131, value=DEFAULT_ATK_TGT)
-          cb = ttk.Combobox(frm131, values=ATK_TGT, textvariable=self.var_atk_tgt)
-          cb.pack(expand=tk.YES, fill=tk.X)
+          self.cb_atk_tgt = ttk.Combobox(frm131, values=ATK_TGT, textvariable=self.var_atk_tgt)
+          self.cb_atk_tgt.pack(expand=tk.YES, fill=tk.X)
         
         frm132 = ttk.LabelFrame(frm13, text='eps')
         frm132.pack(expand=tk.YES, fill=tk.X)
@@ -164,26 +205,23 @@ class App:
         frm134 = ttk.LabelFrame(frm13, text='step')
         frm134.pack(expand=tk.YES, fill=tk.X)
         if True:
-          self.var_atk_step = tk.IntVar(frm134, value=10)
+          self.var_atk_step = tk.IntVar(frm134, value=40)
           ent = ttk.Entry(frm134, textvariable=self.var_atk_step)
           ent.pack(expand=tk.YES, fill=tk.X)
-
-        btn = ttk.Button(frm13, text='Attack!', command=self._attack)
-        btn.focus()
-        btn.pack(expand=tk.YES, fill=tk.X)
 
         frm135 = ttk.LabelFrame(frm13, text='Transfer Model')
         frm135.pack(expand=tk.YES, fill=tk.X)
         if True:
           self.var_tmodel = tk.StringVar(frm135, value=DEFAULT_TMODEL)
-          cb = ttk.Combobox(frm135, state='readonly', values=MODELS, textvariable=self.var_tmodel)
+          cb = ttk.Combobox(frm135, state='readonly', values=[''] + MODELS, textvariable=self.var_tmodel)
           cb.bind('<<ComboboxSelected>>', lambda evt: self._change_tmodel())
           cb.pack(expand=tk.YES, fill=tk.X)
         
         self.var_tattack_info = tk.StringVar(frm13, value='')
         ttk.Label(frm13, textvariable=self.var_tattack_info, foreground='red').pack()
 
-        btn = ttk.Button(frm13, text='Transfer Attack!', command=self._tattack)
+        btn = ttk.Button(frm13, text='Attack!', command=self._attack)
+        btn.focus()
         btn.pack(expand=tk.YES, fill=tk.X)
 
       frm14 = ttk.LabelFrame(frm1, text='Stats')
@@ -226,6 +264,19 @@ class App:
       self.lb_img_AX, (self.ax_AX, self.fig_AX, self.cvs_AX) = _create_display_widgets(frm2, 'AX')
       self.lb_img_DX, (self.ax_DX, self.fig_DX, self.cvs_DX) = _create_display_widgets(frm2, 'DX')
 
+      def toggle_img_X(evt):
+        self.mode_img_X = not self.mode_img_X
+        self._update_display_widgets('X')
+      def toggle_img_AX(evt):
+        self.mode_img_AX = not self.mode_img_AX
+        self._update_display_widgets('AX')
+      def toggle_img_DX(evt):
+        self.mode_img_DX = not self.mode_img_DX
+        self._update_display_widgets('DX')
+      self.lb_img_X .bind('<Button-3>', toggle_img_X)
+      self.lb_img_AX.bind('<Button-3>', toggle_img_AX)
+      self.lb_img_DX.bind('<Button-3>', toggle_img_DX)
+
   def _change_model(self):
     name = self.var_model.get()
     if name == self.cur_model: return
@@ -239,14 +290,19 @@ class App:
       self._attack()
       self.cur_model = name
     except:
-      print_exc()
+      msg = format_exc()
+      print(msg)
+      tkmsg.showerror(msg)
 
   def _change_tmodel(self):
     name = self.var_tmodel.get()
     if name == self.cur_tmodel: return
 
     try:
-      self.tmodel = get_model(name).to(device).eval()
+      if name: self.tmodel = get_model(name).to(device).eval()
+      else:    self.tmodel = None
+
+      self._tattack()
       self.cur_tmodel = name
     except:
       msg = format_exc()
@@ -326,16 +382,22 @@ class App:
                     steps=self.var_atk_step.get(),
                     normalizer=lambda x: normalize(x, self.cur_dataset))
     elif atk_meth == 'pgd_conv':
-      self.AX = pgd_conv(self.layer, self.X, 
-                    eps=self.var_atk_eps.get(),
-                    alpha=self.var_atk_alpha.get(),
-                    steps=self.var_atk_step.get(),
-                    normalizer=lambda x: normalize(x, self.cur_dataset))
+      self.Y_atk = None
+
+      self.AX = pgd_conv(self.layer, self.X, self.var_atk_tgt.get(),
+                         eps=self.var_atk_eps.get(),
+                         alpha=self.var_atk_alpha.get(),
+                         steps=self.var_atk_step.get(),
+                         normalizer=lambda x: normalize(x, self.cur_dataset))
+    else:
+      tkmsg.showerror('Error', f'known attack method {atk_meth}')
+      return
 
     with torch.inference_mode():
       self.pred_AX = self.model(normalize(self.AX, self.cur_dataset))
       self.DX = self.AX - self.X
 
+    if self.tmodel is not None: self._tattack()
     self._show()
 
   def _tattack(self):
@@ -352,27 +414,31 @@ class App:
 
     self.var_tattack_info.set(f'{pred_X}|{prob_X_t[pred_X]:.2%} → {pred_AX}|{prob_AX_t[pred_AX]:.2%}')
 
-  def _show(self):
-    def _update_display_widgets(title:str, x:torch.Tensor):
-      # collect widgets
-      lb_img = getattr(self, f'lb_img_{title}')
-      ax     = getattr(self, f'ax_{title}')
-      fig    = getattr(self, f'fig_{title}')
-      cvs    = getattr(self, f'cvs_{title}')
+  def _update_display_widgets(self, title:str):
+    # collect widgets
+    x      = getattr(self, title)
+    lb_img = getattr(self, f'lb_img_{title}')
+    ax     = getattr(self, f'ax_{title}')
+    fig    = getattr(self, f'fig_{title}')
+    cvs    = getattr(self, f'cvs_{title}')
+    mode   = getattr(self, f'mode_img_{title}')
 
-      # draw image
+    def _display_resize(img:Image):
+      h, w = img.size
+      if   h > w: size = (IMAGE_MAX_SIZE,          IMAGE_MAX_SIZE * w // h)
+      elif w > h: size = (IMAGE_MAX_SIZE * h // w, IMAGE_MAX_SIZE)
+      else:       size = (IMAGE_MAX_SIZE,          IMAGE_MAX_SIZE)
+      return img.resize(size, resample=RESAMPLE_METHOD)
+
+    # draw raw image
+    if mode == False:
       im_f = x.permute([0, 2, 3, 1]).squeeze().detach().cpu().numpy()    # [H, W, C=3] or [H, W]
       if title == 'DX':
         im_f_norm = (im_f - im_f.min()) / (im_f.max() - im_f.min())     # minmax-norm
         img = Image.fromarray((im_f_norm * 255).astype(np.uint8))
       else:
         img = Image.fromarray((im_f * 255).astype(np.uint8))
-
-      h, w = img.size
-      if   h > w: size = (IMAGE_MAX_SIZE,          IMAGE_MAX_SIZE * w // h)
-      elif w > h: size = (IMAGE_MAX_SIZE * h // w, IMAGE_MAX_SIZE)
-      else:       size = (IMAGE_MAX_SIZE,          IMAGE_MAX_SIZE)
-      img = img.resize(size, resample=RESAMPLE_METHOD)
+      img = _display_resize(img)
 
       imgtk = ImageTk.PhotoImage(img)
       lb_img.imgtk = imgtk                  # avoid gc
@@ -403,9 +469,30 @@ class App:
 
       cvs.draw()
 
-    _update_display_widgets('X',  self.X)
-    _update_display_widgets('AX', self.AX)
-    _update_display_widgets('DX', self.DX)
+    # draw feature maps
+    elif mode == True:
+      if title in ['X', 'AX']:
+        fm    = self.layer(normalize(x, dataset=self.cur_dataset))
+      else:
+        fm_X  = self.layer(normalize(self.X, dataset=self.cur_dataset))
+        fm_AX = self.layer(normalize(self.AX, dataset=self.cur_dataset))
+        fm = fm_AX - fm_X
+
+      fm_n = minmax_norm_channel_wise(fm).permute([1, 0, 2, 3])
+      grid_X = make_grid(fm_n, nrow=int(fm_n.shape[0] ** 0.5)).permute([1, 2, 0]).detach().cpu().numpy()
+      grid_X = (grid_X * 255).astype(np.uint8)
+      img = Image.fromarray(grid_X)
+      img = _display_resize(img)
+
+      imgtk = ImageTk.PhotoImage(img)
+      lb_img.imgtk = imgtk                  # avoid gc
+      lb_img.config(image=imgtk)
+
+
+  def _show(self):
+    self._update_display_widgets('X')
+    self._update_display_widgets('AX')
+    self._update_display_widgets('DX')
 
     # stats
     B, C, H, W = self.X.shape
@@ -417,7 +504,7 @@ class App:
     info = [
       f'truth: {self.Y.item()}' if self.Y else None,
       f'pred_X: {pred_X}|{prob_X[pred_X]:.2%}',
-      f'attack: {self.Y_atk.item()}',
+      f'attack: {self.Y_atk.item()}' if self.Y_atk else None,
       f'pred_AX: {pred_AX}|{prob_AX[pred_AX]:.2%}',
       f'Linf: {self.DX.abs().max():.4}',
       f'L2: {self.DX.square().sum().sqrt().mean():.4}',

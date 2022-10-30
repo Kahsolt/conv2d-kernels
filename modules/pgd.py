@@ -35,6 +35,10 @@ def pgd(model, images, labels, eps=0.03, alpha=0.001, steps=40, element_wise=Tru
       loss = F.cross_entropy(outputs, labels)
       grad = torch.autograd.grad(loss, adv_images)[0]
 
+    v_loss = loss.mean().item()
+    print('minimizing loss:', v_loss)
+    if v_loss == 0.0: break
+
     with torch.no_grad():
       adv_images = adv_images.detach() - alpha * grad.sign()
       delta = torch.clamp(adv_images - images, min=-eps, max=eps)
@@ -46,32 +50,64 @@ def pgd(model, images, labels, eps=0.03, alpha=0.001, steps=40, element_wise=Tru
   return adv_images
 
 
-def pgd_conv(layer, images, eps=0.03, alpha=0.001, steps=40, element_wise=True, **kwargs):
-  ''' Attack a single conv2d layer to output uniform noise data :) '''
+def pgd_conv(layer, images, target:str, eps=0.03, alpha=0.001, steps=40, **kwargs):
+  creterion = {
+    # maximize the L-norm between original fm and new fm
+    'L1': lambda x, y: (x - y).abs(),
+    'L2': lambda x, y: (x - y).square(),
+
+    # maximize the std between original fm and new fm in channel wise
+    'L1_std'  : lambda x, y: (x - y).abs().std(),
+    'L1_std_C': lambda x, y: (x - y).abs().std(dim=1),
+    'L1_std_S': lambda x, y: (x - y).abs().std(dim=[2, 3]),
+    # maximize the mean between original fm and new fm in channel wise
+    'L1_mean'  : lambda x, y: (x - y).abs().mean(),
+    'L1_mean_C': lambda x, y: (x - y).abs().mean(dim=1),
+    'L1_mean_S': lambda x, y: (x - y).abs().mean(dim=[2, 3]),
+
+    # maximize the dist between std of original fm and new fm in channel wise
+    'std_L1'  : lambda x, y: (x.std() - y.std()).abs(),
+    'std_C_L1': lambda x, y: (x.std(dim=1) - y.std(dim=1)).abs(),
+    'std_S_L1': lambda x, y: (x.std(dim=[2, 3]) - y.std(dim=[2, 3])).abs(),
+    # maximize the dist between mean of original fm and new fm in channel wise
+    'mean_L1'  : lambda x, y: (x.mean() - y.mean()).abs(),
+    'mean_C_L1': lambda x, y: (x.mean(dim=1) - y.mean(dim=1)).abs(),
+    'mean_S_L1': lambda x, y: (x.mean(dim=[2, 3]) - y.mean(dim=[2, 3])).abs(),
+
+    # maximize the std of new fm
+    'std_fm'   : lambda x, y: x.std(),
+    'std_C_fm' : lambda x, y: x.std(dim=1),
+    'std_S_fm' : lambda x, y: x.std(dim=[2, 3]),
+    'mean_fm'  : lambda x, y: x.mean(),
+    'mean_C_fm': lambda x, y: x.mean(dim=1),
+    'mean_S_fm': lambda x, y: x.mean(dim=[2, 3]),
+  }.get(target)
 
   normalizer = kwargs.get('normalizer', lambda _: _)
 
-  images = images.clone().detach()
-  with torch.inference_mode():
-    fms = layer(images)
+  with torch.no_grad():
+    fm = layer(normalizer(images))   # [B, C, H, W]
 
+  images     = images.clone().detach()
   adv_images = images.clone().detach()
   adv_images = adv_images + torch.empty_like(adv_images).uniform_(-eps, eps)
   adv_images = torch.clamp(adv_images, min=0, max=1).detach()
 
+  last_v_loss = None
   for _ in tqdm(range(steps)):
     adv_images.requires_grad = True
-    outputs = layer(normalizer(adv_images))
+    fm_hat = layer(normalizer(adv_images))   # [B, C, H, W]
 
-    if element_wise:
-      loss = F.cross_entropy(outputs, labels, reduction='none')
-      grad = torch.autograd.grad(loss, adv_images, grad_outputs=loss)[0]
-    else:
-      loss = F.cross_entropy(outputs, labels)
-      grad = torch.autograd.grad(loss, adv_images)[0]
+    loss = creterion(fm_hat, fm)
+    grad = torch.autograd.grad(loss, adv_images, grad_outputs=loss)[0]
 
+    v_loss = loss.mean().item()
+    print('maximizing loss:', v_loss)
+    if v_loss == last_v_loss: break
+    last_v_loss = v_loss
+  
     with torch.no_grad():
-      adv_images = adv_images.detach() - alpha * grad.sign()
+      adv_images = adv_images.detach() + alpha * grad.sign()    # `+` for maximize
       delta = torch.clamp(adv_images - images, min=-eps, max=eps)
       adv_images = torch.clamp(images + delta, min=0, max=1).detach()
 

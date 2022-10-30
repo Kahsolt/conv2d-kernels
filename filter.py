@@ -25,19 +25,23 @@ from modules.model import MODELS, get_model, get_first_conv2d_layer
 from modules.data import DATASETS, get_dataloader, normalize
 from modules.env import device
 from modules.pgd import pgd
+from modules.util import minmax_norm_channel_wise
 
 WINDOW_TITLE    = 'conv2d filter'
 IMAGE_MAX_SIZE  = 512
 CONTROL_WIDTH   = 140
-WINDOW_SIZE     = (IMAGE_MAX_SIZE+CONTROL_WIDTH+40, 600)
+WINDOW_SIZE     = (IMAGE_MAX_SIZE+CONTROL_WIDTH+40, 650)
 HIST_FIG_SIZE   = (1.5, 1)
 RESAMPLE_METHOD = Image.Resampling.NEAREST
 NUM_CLASSES     = 1000
 
 assert IMAGE_MAX_SIZE < min(*WINDOW_SIZE)
 
+CHANNEL_NORMS = ['MinMax', 'Clip', 'None']
+
 DEFAULT_MODEL   = MODELS[0]
 DEFAULT_DATASET = DATASETS[-1]
+DEFAULT_CHANNEL_NORM    = CHANNEL_NORMS[1]
 
 avg_pool  = nn.AvgPool2d(kernel_size=2, stride=2).to(device)    # fix shape between original and feature map
 rgb2grey  = T.Grayscale()
@@ -140,6 +144,14 @@ class App:
             self.cb_B = ttk.Combobox(frm1221, state='readonly', values=-1, textvariable=self.var_B, width=4)
             self.cb_B.bind('<<ComboboxSelected>>', lambda evt: show_rgb_fn('B'))
             self.cb_B.pack(side=tk.LEFT, expand=tk.NO)
+
+        frm123 = ttk.LabelFrame(frm12, text='Channel Norm')
+        frm123.pack()
+        if True:
+          self.var_channel_norm = tk.StringVar(frm123, value=DEFAULT_CHANNEL_NORM)
+          cb = ttk.Combobox(frm123, state='readonly', values=CHANNEL_NORMS, textvariable=self.var_channel_norm)
+          cb.bind('<<ComboboxSelected>>', lambda evt: self._show())
+          cb.pack(side=tk.LEFT, expand=tk.NO)
 
         btn = ttk.Button(frm12, text='Reset', command=self._reset)
         btn.pack(expand=tk.YES, fill=tk.X)
@@ -366,6 +378,10 @@ class App:
       else:        B = self.out[:, fB, :, :]
       x = torch.stack([R, G, B], axis=1)            # [B=1, C=3, H, W] 
     else: return
+
+    ch_norm = self.var_channel_norm.get()
+    if   ch_norm == 'MinMax': x = minmax_norm_channel_wise(x)
+    elif ch_norm == 'Clip':   x = x.clamp(0.0, 1.0)
 
     im = x.permute([0, 2, 3, 1]).squeeze().detach().cpu().numpy()    # [H, W, C=3] or [H, W]
     img = Image.fromarray((im * 255).astype(np.uint8))
