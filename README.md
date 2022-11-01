@@ -40,7 +40,7 @@ ResNet18 conv1 kernels centroids after KMeans clustering:
 
 #### fixedpoint
 
-⚪ mathematical property of the weights: what are the fixed points of a conv2d layer?
+⚪ mathematical property of the well-known image kernels: what are the fixed points of a 2d kernel?
 
 ![img/fixedpoint.png](img/fixedpoint.png)
 

@@ -117,5 +117,31 @@ def pgd_conv(layer, images, target:str, eps=0.03, alpha=0.001, steps=40, **kwarg
   return adv_images
 
 
-def pgd_conv_fixedpoint(layer, image, channel_idx, alpha=0.001, steps=40, element_wise=True, **kwargs):
-  pass
+def pgd_kernel_fixedpoint(kernel:torch.Tensor, X:torch.Tensor, alpha=0.001, steps=1000, ret_every=100):
+  k_w, k_h = kernel.shape
+  padding = (k_w//2, k_h//2)
+
+  filters = kernel.unsqueeze(0).unsqueeze(0)     # [1, 1, k_w, k_h]
+
+  for i in tqdm(range(steps)):
+    X.requires_grad = True
+    FX = F.conv2d(X, filters, padding=padding)   # [B=1, C=1, H, W]
+
+    loss_diff = F.l1_loss(FX, X, reduction='none')
+    loss_fx_overflow = FX * (FX>1) + -FX * (FX<0)       # FX should also range in [0, 1]
+    loss = loss_diff + loss_fx_overflow
+    grad = torch.autograd.grad(loss, X, grad_outputs=loss)[0]
+
+    v_loss = loss.mean().item()
+    print('minimizing loss:', v_loss)
+    if v_loss == 0.0: raise StopIteration
+
+    with torch.no_grad():
+      if steps > 2000:
+        X = X - alpha * grad.sign()
+      else:
+        X = X - alpha * grad.tanh()
+      X = X.clamp(0.0, 1.0)
+
+    if i % ret_every == 0:
+      yield X, FX
