@@ -39,9 +39,9 @@ assert IMAGE_MAX_SIZE < min(*WINDOW_SIZE)
 
 CHANNEL_NORMS = ['MinMax', 'Clip', 'None']
 
-DEFAULT_MODEL   = MODELS[0]
-DEFAULT_DATASET = DATASETS[-1]
-DEFAULT_CHANNEL_NORM    = CHANNEL_NORMS[1]
+DEFAULT_MODEL        = MODELS[0]
+DEFAULT_DATASET      = DATASETS[-1]
+DEFAULT_CHANNEL_NORM = CHANNEL_NORMS[0]
 
 avg_pool  = nn.AvgPool2d(kernel_size=2, stride=2).to(device)    # fix shape between original and feature map
 rgb2grey  = T.Grayscale()

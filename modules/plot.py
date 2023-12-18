@@ -16,9 +16,10 @@ def imshow(X: torch.Tensor, title='', maximize=False):
   plt.suptitle(title)
 
   if maximize:
-    mng = plt.get_current_fig_manager()
-    mng.window.showMaximized()    # 'QT4Agg' backend
-  
+    try:
+      mng = plt.get_current_fig_manager()
+      mng.window.showMaximized()    # 'QT4Agg' backend
+    except: pass
   plt.show()
 
 
